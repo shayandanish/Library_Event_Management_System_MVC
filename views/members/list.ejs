@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Registered Members</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  </head>
+  <body class="bg-light">
+    <div class="container py-5">
+      <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+          <h1 class="h3 mb-1">Registered Members</h1>
+          <p class="text-muted mb-0">All members added to the system</p>
+        </div>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="/">Back</a>
+          <a class="btn btn-primary" href="/members/add">Add Member</a>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Member ID</th>
+                  <th scope="col">Full Name</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Gender</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% if (users && users.length) { %>
+                  <% users.forEach((u, idx) => { %>
+                  <tr>
+                    <td><%= idx + 1 %></td>
+                    <td><code><%= u.memberID || "-" %></code></td>
+                    <td><%= u.fullName || "-" %></td>
+                    <td class="text-capitalize"><%= u.memberType || "-" %></td>
+                    <td class="text-capitalize"><%= u.gender || "-" %></td>
+                    <td><%= u.phone || "-" %></td>
+                    <td><%= u.email || "-" %></td>
+                    <td><%= (u.createdAt && new Date(u.createdAt).toLocaleString()) || "-" %></td>
+                  </tr>
+                  <% }) %>
+                <% } else { %>
+                  <tr>
+                    <td colspan="8" class="text-center py-4 text-muted">No members found.</td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

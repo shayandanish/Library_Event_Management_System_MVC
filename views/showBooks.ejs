@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Books — AIPS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .truncate-1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-50">
+    <header class="bg-white border-b">
+      <div
+        class="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between"
+      >
+        <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
+          AIPS Books
+        </h1>
+        <a href="/" class="text-sm text-indigo-600 hover:text-indigo-500"
+          >Home</a
+        >
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <section class="bg-white border rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-800">All Books</h2>
+
+          <span class="text-sm text-slate-500"> Total: <%= totalBooks %> </span>
+        </div>
+
+        <% if (notFoundMessage) { %>
+        <div class="px-6 py-3 bg-amber-50 text-amber-700 text-sm border-b">
+          <%= notFoundMessage %>
+        </div>
+        <% } %>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full table-fixed text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr>
+                <th class="text-left font-semibold px-4 py-3">Book ID</th>
+                <th class="text-left font-semibold px-4 py-3">Title</th>
+                <th class="text-left font-semibold px-4 py-3">Author</th>
+                <th
+                  class="text-left font-semibold px-4 py-3 hidden sm:table-cell"
+                >
+                  Category
+                </th>
+                <th
+                  class="text-left font-semibold px-4 py-3 hidden md:table-cell"
+                >
+                  Year
+                </th>
+                <th
+                  class="text-left font-semibold px-4 py-3 hidden md:table-cell"
+                >
+                  Total
+                </th>
+                <th class="text-left font-semibold px-4 py-3">Available</th>
+
+                <!-- Shelf columns: ALWAYS visible (no hidden classes) -->
+                <th class="text-left font-semibold px-4 py-3">Shelf No</th>
+                <th class="text-left font-semibold px-4 py-3">Shelf</th>
+
+                <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+                <th class="text-left font-semibold px-4 py-3">Actions</th>
+                <% } %>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (Array.isArray(books) && books.length) { %> <%
+              books.forEach(function(book) { %>
+              <tr class="border-t hover:bg-slate-50">
+                <td
+                  class="px-4 py-3 truncate-1"
+                  title="<%= book.bookID || book.BookID || '' %>"
+                >
+                  <%= book.bookID || book.BookID || '' %>
+                </td>
+                <td
+                  class="px-4 py-3 truncate-1"
+                  title="<%= book.title || book.Title || '' %>"
+                >
+                  <%= book.title || book.Title || '' %>
+                </td>
+                <td
+                  class="px-4 py-3 truncate-1"
+                  title="<%= book.author || book.Author || '' %>"
+                >
+                  <%= book.author || book.Author || '' %>
+                </td>
+                <td
+                  class="px-4 py-3 truncate-1 hidden sm:table-cell"
+                  title="<%= book.category || book.Category || '' %>"
+                >
+                  <%= book.category || book.Category || '' %>
+                </td>
+                <td class="px-4 py-3 hidden md:table-cell">
+                  <%= book.year || book.Year || '' %>
+                </td>
+                <td class="px-4 py-3 hidden md:table-cell">
+                  <%= (book.totalCopies ?? book.TotalCopies ?? 0) %>
+                </td>
+                <td class="px-4 py-3">
+                  <%= (book.availableCopies ?? book.AvailableCopies ?? 0) %>
+                </td>
+
+                <!-- Shelf No + Shelf – always visible, with fallbacks -->
+                <td class="px-4 py-3">
+                  <%= book.shelfNo || book.ShelfNo || '' %>
+                </td>
+                <td
+                  class="px-4 py-3 truncate-1"
+                  title="<%= book.shelf || book.Shelf || '' %>"
+                >
+                  <%= book.shelf || book.Shelf || '' %>
+                </td>
+
+                <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+                <td class="px-4 py-3 space-x-2 align-top">
+                  <!-- Actions (Issue, Return, Delete, etc.) -->
+                </td>
+                <% } %>
+              </tr>
+              <% }) %> <% } else { %>
+              <tr>
+                <td colspan="10" class="px-4 py-6 text-center text-slate-500">
+                  <%= notFoundMessage || "No books yet." %>
+                </td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination controls -->
+        <div
+          class="px-6 py-4 flex justify-between items-center flex-col sm:flex-row"
+        >
+          <!-- Previous Button -->
+          <% if (currentPage > 1) { %>
+          <a
+            href="/books?page=<%= currentPage - 1 %>"
+            class="text-indigo-600 hover:text-indigo-500 mb-2 sm:mb-0"
+            >Previous</a
+          >
+          <% } %>
+
+          <!-- Page Information -->
+          <span class="text-sm text-slate-500 mb-2 sm:mb-0">
+            Page <%= currentPage %> of <%= totalPages %>
+          </span>
+
+          <!-- Next Button -->
+          <% if (currentPage < totalPages) { %>
+          <a
+            href="/books?page=<%= currentPage + 1 %>"
+            class="text-indigo-600 hover:text-indigo-500 mb-2 sm:mb-0"
+            >Next</a
+          >
+          <% } %>
+
+          <!-- Direct Page Input (Go to specific page) -->
+          <div class="flex items-center space-x-2 w-full sm:w-auto">
+            <input
+              type="number"
+              id="pageInput"
+              class="p-2 border border-gray-300 rounded w-full sm:w-20"
+              min="1"
+              max="<%= totalPages %>"
+              value="<%= currentPage %>"
+            />
+            <button
+              onclick="goToPage()"
+              class="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-500"
+            >
+              Go
+            </button>
+          </div>
+        </div>
+
+        <script>
+          function goToPage() {
+            const page = document.getElementById("pageInput").value;
+            if (!page) return;
+            window.location.href = `/books?page=${page}`;
+          }
+
+          // Dynamically update the not-found message with search term from URL
+          (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const title = urlParams.get('title');
+            const author = urlParams.get('author');
+            const searchTerm = title || author;
+            const hasNoResults = document.querySelector('tbody td[colspan]') !== null;
+            
+            // Only update if we have a search term and no results
+            if (searchTerm && hasNoResults) {
+              const notFoundMessage = 'Sorry, no book was found with that name ' + searchTerm + '.';
+              
+              // Update the banner message if it exists
+              const bannerMessage = document.querySelector('.bg-amber-50');
+              if (bannerMessage) {
+                bannerMessage.textContent = notFoundMessage;
+              }
+              
+              // Update the table message if it exists
+              const tableMessage = document.querySelector('tbody td[colspan]');
+              if (tableMessage) {
+                tableMessage.textContent = notFoundMessage;
+              }
+            }
+          })();
+        </script>
+      </section>
+    </main>
+  </body>
+</html>
