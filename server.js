@@ -176,20 +176,12 @@ adminRouter.get("/dashboard", (req, res) => {
 
 // Create Post
 adminRouter.get("/create-post", postController.renderCreatePost);
-adminRouter.post(
-  "/create-post",
-  upload.single("media"),
-  postController.createPost,
-);
+adminRouter.post("/create-post", postController.createPost);
 
 // Update Post
 adminRouter.get("/update-post", postController.renderUpdatePost);
 adminRouter.get("/edit-post/:id", postController.getPostById);
-adminRouter.post(
-  "/update-post/:id",
-  upload.single("media"),
-  postController.updatePost,
-);
+adminRouter.post("/update-post/:id", postController.updatePost);
 
 // Delete Post
 adminRouter.get("/delete-post", postController.renderDeletePost);

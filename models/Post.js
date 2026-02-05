@@ -14,7 +14,7 @@ const postSchema = new mongoose.Schema({
     type: String,
     default: "Admin",
   },
-  media: {
+  media: [{
     url: {
       type: String,
       default: null,
@@ -32,7 +32,7 @@ const postSchema = new mongoose.Schema({
       type: String,
       default: null,
     },
-  },
+  }],
   category: {
     type: String,
     default: "General",

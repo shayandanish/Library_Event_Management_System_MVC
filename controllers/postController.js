@@ -2,11 +2,27 @@ const Post = require("../models/Post");
 const { cloudinary } = require("../config/cloudinary");
 
 // Helper function to determine media type
-const getMediaType = (mimetype) => {
+const getMediaType = (file) => {
+  if (!file) return null;
+  const mimetype = file.mimetype || "";
+  const originalname = file.originalname || "";
+  const extension = originalname.split(".").pop().toLowerCase();
+
   if (mimetype.startsWith("image/")) return "image";
   if (mimetype.startsWith("video/")) return "video";
   if (mimetype.startsWith("audio/")) return "audio";
   if (mimetype === "application/pdf") return "pdf";
+
+  // Fallback to extensions if mimetype is generic or weird
+  const videoExts = ["mp4", "mov", "avi", "wmv", "flv", "mkv", "webm"];
+  const audioExts = ["mp3", "wav", "ogg", "m4a", "flac"];
+  const imageExts = ["jpg", "jpeg", "png", "gif", "webp"];
+
+  if (videoExts.includes(extension)) return "video";
+  if (audioExts.includes(extension)) return "audio";
+  if (imageExts.includes(extension)) return "image";
+  if (extension === "pdf") return "pdf";
+
   return null;
 };
 
@@ -27,14 +43,22 @@ exports.createPost = async (req, res) => {
       category: category || "General",
     };
 
-    // Handle media upload
-    if (req.file) {
-      postData.media = {
-        url: req.file.path,
-        publicId: req.file.filename,
-        type: getMediaType(req.file.mimetype),
-        format: req.file.format,
-      };
+    // Handle multiple media uploads from Cloudinary Widget
+    if (req.body.mediaData) {
+      try {
+        const mediaArray = JSON.parse(req.body.mediaData);
+        postData.media = mediaArray.map(item => ({
+          url: item.url || item.secure_url,
+          publicId: item.publicId || item.public_id,
+          type: item.type || (item.resource_type === "video" ? "video" : "image"),
+          format: item.format,
+        }));
+      } catch (e) {
+        console.error("Error parsing mediaData:", e);
+        postData.media = [];
+      }
+    } else {
+      postData.media = [];
     }
 
     const newPost = new Post(postData);
@@ -42,18 +66,9 @@ exports.createPost = async (req, res) => {
 
     res.redirect("/admin/dashboard?success=Post created successfully");
   } catch (error) {
-    console.error("Error creating post:", error);
+    console.error("Error creating post DETAILED:", error);
 
-    // Delete uploaded file from cloudinary if post creation fails
-    if (req.file && req.file.filename) {
-      try {
-        await cloudinary.uploader.destroy(req.file.filename);
-      } catch (err) {
-        console.error("Error deleting file from cloudinary:", err);
-      }
-    }
-
-    res.redirect("/admin/create-post?error=Failed to create post");
+    res.redirect(`/admin/create-post?error=Failed to create post: ${encodeURIComponent(error.message)}`);
   }
 };
 
@@ -109,28 +124,19 @@ exports.updatePost = async (req, res) => {
       updatedAt: Date.now(),
     };
 
-    // Handle new media upload
-    if (req.file) {
-      // Delete old media from cloudinary if exists
-      if (post.media && post.media.publicId) {
-        try {
-          await cloudinary.uploader.destroy(post.media.publicId, {
-            resource_type:
-              post.media.type === "video" || post.media.type === "audio"
-                ? "video"
-                : "image",
-          });
-        } catch (err) {
-          console.error("Error deleting old media:", err);
-        }
+    // Handle media updates from Cloudinary Widget
+    if (req.body.mediaData) {
+      try {
+        const mediaArray = JSON.parse(req.body.mediaData);
+        updateData.media = mediaArray.map(item => ({
+          url: item.url || item.secure_url,
+          publicId: item.publicId || item.public_id,
+          type: item.type || (item.resource_type === "video" ? "video" : "image"),
+          format: item.format,
+        }));
+      } catch (e) {
+        console.error("Error parsing mediaData during update:", e);
       }
-
-      updateData.media = {
-        url: req.file.path,
-        publicId: req.file.filename,
-        type: getMediaType(req.file.mimetype),
-        format: req.file.format,
-      };
     }
 
     await Post.findByIdAndUpdate(req.params.id, updateData, { new: true });
@@ -138,11 +144,17 @@ exports.updatePost = async (req, res) => {
   } catch (error) {
     console.error("Error updating post:", error);
 
-    if (req.file && req.file.filename) {
-      try {
-        await cloudinary.uploader.destroy(req.file.filename);
-      } catch (err) {
-        console.error("Error deleting file:", err);
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        if (file.filename) {
+          try {
+            await cloudinary.uploader.destroy(file.filename, {
+              resource_type: file.mimetype.startsWith("video/") || file.mimetype.startsWith("audio/") ? "video" : "image"
+            });
+          } catch (err) {
+            console.error("Error deleting file:", err);
+          }
+        }
       }
     }
 
@@ -180,16 +192,17 @@ exports.deletePost = async (req, res) => {
     }
 
     // Delete media from cloudinary if exists
-    if (post.media && post.media.publicId) {
-      try {
-        await cloudinary.uploader.destroy(post.media.publicId, {
-          resource_type:
-            post.media.type === "video" || post.media.type === "audio"
-              ? "video"
-              : "image",
-        });
-      } catch (err) {
-        console.error("Error deleting media from cloudinary:", err);
+    if (post.media && post.media.length > 0) {
+      for (const m of post.media) {
+        if (m.publicId) {
+          try {
+            await cloudinary.uploader.destroy(m.publicId, {
+              resource_type: m.type === "video" || m.type === "audio" ? "video" : "image",
+            });
+          } catch (err) {
+            console.error("Error deleting media from cloudinary:", err);
+          }
+        }
       }
     }
 
