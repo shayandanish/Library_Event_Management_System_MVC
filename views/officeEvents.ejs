@@ -367,16 +367,51 @@
                   <span>👤 <%= post.author %></span>
                 </div>
                 <p class="post-excerpt">
-                  <%= post.content.length> 200 ? post.content.substring(0, 200) + '...' : post.content %>
+                  <%= post.content.length> 350 ? post.content.substring(0, 350) + '...' : post.content %>
                 </p>
-                <div class="post-footer">
+                <div class="post-footer d-flex justify-content-between align-items-center">
                   <span>📅 <%= new Date(post.createdAt).toLocaleDateString('en-US', { year: 'numeric' , month: 'long' ,
                       day: 'numeric' }) %></span>
+                  <button class="btn btn-primary btn-sm read-more-btn px-3" data-bs-toggle="modal"
+                    data-bs-target="#postModal" data-post='<%- JSON.stringify(post).replace(/\' /g, "&#39;" ) %>'>
+                    Read More
+                  </button>
                 </div>
               </div>
             </article>
           </div>
           <% }); %>
+      </div>
+
+      <!-- Post Detail Modal -->
+      <div class="modal fade" id="postModal" tabindex="-1" aria-labelledby="postModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+              <div id="modalMediaContainer" class="mb-4 rounded overflow-hidden shadow-sm"
+                style="min-height: 200px; background: #000;">
+                <!-- Media will be injected here -->
+              </div>
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <span id="modalCategory" class="badge bg-primary"></span>
+                <small class="text-muted" id="modalDate"></small>
+              </div>
+              <h2 id="modalTitle" class="fw-bold mb-3"></h2>
+              <div class="d-flex align-items-center gap-2 mb-4 text-muted small">
+                <span>👤 Author: <span id="modalAuthor"></span></span>
+              </div>
+              <div id="modalContent" class="text-secondary" style="line-height: 1.8; white-space: pre-wrap;">
+                <!-- Content will be injected here -->
+              </div>
+            </div>
+            <div class="modal-footer border-0">
+              <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
       </div>
       <% } else { %>
         <div class="no-posts">
@@ -396,6 +431,85 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const postModal = document.getElementById('postModal');
+      if (postModal) {
+        postModal.addEventListener('show.bs.modal', function (event) {
+          const button = event.relatedTarget;
+          const post = JSON.parse(button.getAttribute('data-post'));
+
+          // Update Modal Content
+          document.getElementById('modalTitle').textContent = post.title;
+          document.getElementById('modalAuthor').textContent = post.author;
+          document.getElementById('modalCategory').textContent = post.category;
+          document.getElementById('modalDate').textContent = new Date(post.createdAt).toLocaleDateString('en-US', {
+            year: 'numeric', month: 'long', day: 'numeric'
+          });
+          document.getElementById('modalContent').textContent = post.content;
+
+          // Handle Modal Media
+          const mediaContainer = document.getElementById('modalMediaContainer');
+          mediaContainer.innerHTML = '';
+
+          if (post.media && post.media.length > 0) {
+            if (post.media.length > 1) {
+              // Carousel for modal
+              const carouselId = 'modalCarousel';
+              let indicators = '';
+              let items = '';
+
+              post.media.forEach((m, i) => {
+                indicators += `<button type="button" data-bs-target="#${carouselId}" data-bs-slide-to="${i}" class="${i === 0 ? 'active' : ''}"></button>`;
+
+                let content = '';
+                if (m.type === 'image') {
+                  content = `<img src="${m.url}" class="d-block w-100 h-100 object-fit-contain" alt="media">`;
+                } else if (m.type === 'video') {
+                  content = `<video controls class="d-block w-100 h-100"><source src="${m.url}"></video>`;
+                } else if (m.type === 'audio') {
+                  content = `<div class="d-flex flex-column align-items-center justify-content-center h-100 bg-dark p-3"><span style="font-size: 3rem;">🎵</span><audio controls class="w-100 mt-2"><source src="${m.url}"></audio></div>`;
+                } else if (m.type === 'pdf') {
+                  content = `<div class="d-flex flex-column align-items-center justify-content-center h-100 bg-light p-3"><span style="font-size: 3rem;">📄</span><a href="${m.url}" target="_blank" class="btn btn-primary mt-2">View PDF</a></div>`;
+                }
+
+                items += `<div class="carousel-item ${i === 0 ? 'active' : ''}" style="height: 400px;">${content}</div>`;
+              });
+
+              mediaContainer.innerHTML = `
+                <div id="${carouselId}" class="carousel slide h-100" data-bs-ride="false">
+                  <div class="carousel-indicators">${indicators}</div>
+                  <div class="carousel-inner h-100">${items}</div>
+                  <button class="carousel-control-prev" type="button" data-bs-target="#${carouselId}" data-bs-slide="prev">
+                    <span class="carousel-control-prev-icon"></span>
+                  </button>
+                  <button class="carousel-control-next" type="button" data-bs-target="#${carouselId}" data-bs-slide="next">
+                    <span class="carousel-control-next-icon"></span>
+                  </button>
+                </div>
+              `;
+            } else {
+              // Single media for modal
+              const m = post.media[0];
+              let content = '';
+              if (m.type === 'image') {
+                content = `<img src="${m.url}" class="w-100 h-100 object-fit-contain" alt="media">`;
+              } else if (m.type === 'video') {
+                content = `<video controls class="w-100 h-100"><source src="${m.url}"></video>`;
+              } else if (m.type === 'audio') {
+                content = `<div class="d-flex flex-column align-items-center justify-content-center h-100 bg-dark p-3"><span style="font-size: 3rem;">🎵</span><audio controls class="w-100 mt-2"><source src="${m.url}"></audio></div>`;
+              } else if (m.type === 'pdf') {
+                content = `<div class="d-flex flex-column align-items-center justify-content-center h-100 bg-light p-3"><span style="font-size: 3rem;">📄</span><a href="${m.url}" target="_blank" class="btn btn-primary mt-2">View PDF</a></div>`;
+              }
+              mediaContainer.innerHTML = `<div style="height: 400px;">${content}</div>`;
+            }
+          } else {
+            mediaContainer.style.display = 'none';
+          }
+        });
+      }
+    });
+  </script>
 </body>
 
 </html>
