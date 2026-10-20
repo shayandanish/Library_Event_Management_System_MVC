@@ -1,118 +1,346 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Add Book — AIPS</title>
+    <title>Add Book — AIPS Library</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      .truncate-1 {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      .form-input-focus {
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
       }
     </style>
   </head>
-  <body class="min-h-screen bg-slate-50">
-    <header class="bg-white border-b">
-      <div
-        class="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between"
-      >
-        <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Add Book</h1>
-        <!-- Link back to the list of books -->
-        <a href="/books" class="text-sm text-indigo-600 hover:text-indigo-500">
-          View Books</a
-        >
+  <body class="min-h-screen bg-slate-50 text-slate-800">
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <div class="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Add New Book</h1>
+          <p class="text-xs sm:text-sm text-slate-500">AIPS Library Management System</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <a
+            href="/books"
+            class="inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition"
+          >
+            ← View Books
+          </a>
+          <a
+            href="/admin/dashboard"
+            class="inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3.5 py-2 rounded-xl transition"
+          >
+            Dashboard
+          </a>
+        </div>
       </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-6 py-8">
-      <!-- Flash / message banner -->
-      <% if (query && query.msg) { %>
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <!-- Admin Action Feedback Modal -->
+      <% 
+        const fbMsg = (typeof success !== 'undefined' && success) || (typeof query !== 'undefined' && query && (query.msg || query.success)) || null;
+        const fbErr = (typeof error !== 'undefined' && error) || (typeof query !== 'undefined' && query && (query.err || query.error)) || null;
+        const hasFb = Boolean(fbMsg || fbErr);
+      %>
+      <% if (hasFb) { %>
       <div
-        class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 px-4 py-3"
+        id="adminFeedbackModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm transition-opacity"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feedbackTitle"
       >
-        <%= query.msg %>
+        <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-7 text-center transform transition-all">
+          <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-2xl <%= fbMsg ? 'bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/50' : 'bg-rose-50 text-rose-600 ring-8 ring-rose-50/50' %> mb-4">
+            <% if (fbMsg) { %>
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <% } else { %>
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <% } %>
+          </div>
+
+          <h3 id="feedbackTitle" class="text-xl font-bold text-slate-900 mb-2">
+            <%= fbMsg ? 'Action Successful' : 'Action Failed' %>
+          </h3>
+
+          <p class="text-sm text-slate-600 mb-6 leading-relaxed">
+            <%= fbMsg || fbErr %>
+          </p>
+
+          <button
+            type="button"
+            onclick="closeFeedbackModal()"
+            class="w-full inline-flex justify-center items-center px-5 py-3 rounded-xl font-semibold text-sm text-white shadow-sm transition <%= fbMsg ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800' : 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800' %>"
+          >
+            OK, Understood
+          </button>
+        </div>
       </div>
       <% } %>
 
-      <!-- Add Book Card -->
-      <section class="bg-white border rounded-2xl shadow-sm p-6">
-        <h2 class="text-lg font-semibold text-slate-800 mb-4">
-          Add a New Book
-        </h2>
-        <form
-          action="/books/add"
-          method="POST"
-          class="grid grid-cols-1 md:grid-cols-6 gap-4"
-        >
-          <input
-            type="text"
-            name="bookID"
-            placeholder="Book ID "
-            class="md:col-span-2 rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="text"
-            name="title"
-            placeholder="Title"
-            required
-            class="md:col-span-2 rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="text"
-            name="author"
-            placeholder="Author"
-            class="md:col-span-2 rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="text"
-            name="category"
-            placeholder="Category"
-            class="rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="number"
-            name="year"
-            placeholder="Year"
-            class="rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="number"
-            name="totalCopies"
-            placeholder="Total Copies"
-            class="rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="number"
-            name="availableCopies"
-            placeholder="Available"
-            class="rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <!-- Shelf fields -->
-          <input
-            type="text"
-            name="shelfNo"
-            placeholder="Shelf No"
-            class="rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
-          <input
-            type="text"
-            name="shelf"
-            placeholder="Shelf"
-            class="md:col-span-2 rounded-xl border-slate-200 focus:border-indigo-400 focus:ring-indigo-300"
-          />
+      <!-- Error Message Banner -->
+      <% if (typeof error !== 'undefined' && error) { %>
+      <div class="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800 flex items-start space-x-3 shadow-sm">
+        <svg class="w-5 h-5 text-rose-600 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        </svg>
+        <div>
+          <h4 class="font-semibold text-sm">Action Failed</h4>
+          <p class="text-sm mt-0.5"><%= error %></p>
+        </div>
+      </div>
+      <% } %>
 
-          <div class="md:col-span-1">
+      <!-- Success Message Banner -->
+      <% if (typeof success !== 'undefined' && success) { %>
+      <div class="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-start space-x-3 shadow-sm">
+        <svg class="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <div>
+          <h4 class="font-semibold text-sm">Success</h4>
+          <p class="text-sm mt-0.5"><%= success %></p>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Add Book Form Card -->
+      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8">
+        <div class="mb-6 pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Book Information</h2>
+            <p class="text-sm text-slate-500">Provide book details to register in the catalog.</p>
+          </div>
+          <div class="text-xs text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 self-start sm:self-auto">
+            Fields marked with <span class="text-rose-500 font-bold">*</span> are required
+          </div>
+        </div>
+
+        <form action="/books/add" method="POST" class="space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-6 gap-5">
+            <!-- Book ID (Prefilled & Visible) -->
+            <div class="sm:col-span-2">
+              <label for="bookID" class="flex items-center text-sm font-semibold text-slate-700 mb-1.5">
+                Book ID
+                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Auto-Generated
+                </span>
+              </label>
+              <input
+                type="text"
+                id="bookID"
+                name="bookID"
+                value="<%= (typeof formData !== 'undefined' && formData.bookID) ? formData.bookID : (nextBookID || '') %>"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/30 text-indigo-950 font-mono font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus"
+                placeholder="AIPSLIBxxxx"
+                required
+              />
+              <p class="mt-1.5 text-xs text-slate-500">Sequential ID based on library records.</p>
+            </div>
+
+            <!-- Title -->
+            <div class="sm:col-span-4">
+              <label for="title" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Title <span class="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="title"
+                name="title"
+                value="<%= (typeof formData !== 'undefined' && formData.title) ? formData.title : '' %>"
+                placeholder="e.g. Sufis and Soldiers in Aurangzeb's Deccan"
+                required
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+              <p class="mt-1.5 text-xs text-slate-500">Official title of the book.</p>
+            </div>
+
+            <!-- Author -->
+            <div class="sm:col-span-3">
+              <label for="author" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Author
+              </label>
+              <input
+                type="text"
+                id="author"
+                name="author"
+                value="<%= (typeof formData !== 'undefined' && formData.author) ? formData.author : '' %>"
+                placeholder="e.g. Simon Digby"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+
+            <!-- Category -->
+            <div class="sm:col-span-3">
+              <label for="category" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Category
+              </label>
+              <div class="relative">
+                <input
+                  list="categoryList"
+                  id="category"
+                  name="category"
+                  value="<%= (typeof formData !== 'undefined' && formData.category) ? formData.category : '' %>"
+                  placeholder="Select or type category (e.g. History)"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+                />
+                <datalist id="categoryList">
+                  <option value="History" />
+                  <option value="Political Science" />
+                  <option value="Economics" />
+                  <option value="Novel" />
+                  <option value="Islamic Studies" />
+                  <option value="Literature" />
+                  <option value="Philosophy" />
+                  <option value="Biography" />
+                  <option value="General" />
+                </datalist>
+              </div>
+            </div>
+
+            <!-- Publication Year -->
+            <div class="sm:col-span-2">
+              <label for="year" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Year of Publication
+              </label>
+              <input
+                type="number"
+                id="year"
+                name="year"
+                value="<%= (typeof formData !== 'undefined' && formData.year) ? formData.year : '' %>"
+                placeholder="e.g. 2021"
+                min="1000"
+                max="2100"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+
+            <!-- Total Copies -->
+            <div class="sm:col-span-2">
+              <label for="totalCopies" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Total Copies
+              </label>
+              <input
+                type="number"
+                id="totalCopies"
+                name="totalCopies"
+                value="<%= (typeof formData !== 'undefined' && formData.totalCopies !== undefined) ? formData.totalCopies : 1 %>"
+                min="0"
+                required
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+
+            <!-- Available Copies -->
+            <div class="sm:col-span-2">
+              <label for="availableCopies" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Available Copies
+              </label>
+              <input
+                type="number"
+                id="availableCopies"
+                name="availableCopies"
+                value="<%= (typeof formData !== 'undefined' && formData.availableCopies !== undefined) ? formData.availableCopies : 1 %>"
+                min="0"
+                required
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+
+            <!-- Shelf No -->
+            <div class="sm:col-span-3">
+              <label for="shelfNo" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Shelf Number
+              </label>
+              <input
+                type="text"
+                id="shelfNo"
+                name="shelfNo"
+                value="<%= (typeof formData !== 'undefined' && formData.shelfNo) ? formData.shelfNo : '' %>"
+                placeholder="e.g. J-06 or A-01"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+
+            <!-- Shelf Section -->
+            <div class="sm:col-span-3">
+              <label for="shelf" class="block text-sm font-semibold text-slate-700 mb-1.5">
+                Shelf Section / Name
+              </label>
+              <input
+                type="text"
+                id="shelf"
+                name="shelf"
+                value="<%= (typeof formData !== 'undefined' && formData.shelf) ? formData.shelf : '' %>"
+                placeholder="e.g. ShelfJ or ShelfA"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 form-input-focus shadow-sm"
+              />
+            </div>
+          </div>
+
+          <!-- Form Buttons -->
+          <div class="pt-6 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
+            <a
+              href="/books"
+              class="w-full sm:w-auto px-5 py-2.5 text-center text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-sm"
+            >
+              Cancel
+            </a>
             <button
               type="submit"
-              class="w-full rounded-xl bg-indigo-600 text-white font-semibold py-2.5 hover:bg-indigo-500 shadow"
+              class="w-full sm:w-auto px-6 py-2.5 text-center text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm shadow-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
-              Add Book
+              Add Book to Library
             </button>
           </div>
         </form>
       </section>
     </main>
+
+    <script>
+      // Automatically keep availableCopies matched to totalCopies unless manually modified
+      const totalInput = document.getElementById("totalCopies");
+      const availInput = document.getElementById("availableCopies");
+      let availModified = false;
+
+      availInput.addEventListener("input", () => {
+        availModified = true;
+      });
+
+      totalInput.addEventListener("input", () => {
+        if (!availModified) {
+          availInput.value = totalInput.value;
+        }
+      });
+
+      function closeFeedbackModal() {
+        const modal = document.getElementById("adminFeedbackModal");
+        if (modal) {
+          modal.classList.add("hidden");
+        }
+        if (window.history.replaceState) {
+          const url = new URL(window.location);
+          url.searchParams.delete("msg");
+          url.searchParams.delete("err");
+          url.searchParams.delete("success");
+          url.searchParams.delete("error");
+          window.history.replaceState({}, document.title, url.toString());
+        }
+      }
+
+      window.addEventListener("click", (e) => {
+        const fbModal = document.getElementById("adminFeedbackModal");
+        if (fbModal && e.target === fbModal) closeFeedbackModal();
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeFeedbackModal();
+      });
+    </script>
   </body>
 </html>

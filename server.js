@@ -33,8 +33,30 @@ app.set("views", path.join(__dirname, "views"));
 // to be referenced directly from templates (e.g. /images/library.png).
 app.use(express.static(path.join(__dirname, "public")));
 
-// Connect to database
-connectDB();
+// Connect to database asynchronously on boot
+connectDB().catch((err) => {
+  console.error("Initial DB connection attempt failed:", err.message);
+});
+
+// Middleware to ensure DB connection is ready for incoming requests
+app.use(async (req, res, next) => {
+  // Static paths and health check don't require database connection
+  if (
+    req.path.startsWith("/images") ||
+    req.path.startsWith("/css") ||
+    req.path.startsWith("/js") ||
+    req.path === "/health"
+  ) {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("DB connection error in request middleware:", err.message);
+    return res.status(503).send("Service temporarily unavailable: Database connecting. Please refresh shortly.");
+  }
+});
 
 // Routes
 // Root landing page.  If the visitor already has a valid admin cookie we
@@ -196,9 +218,16 @@ app.get("/health", (_req, res) => res.send("ok"));
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).send("Something went wrong.");
+  console.error("Unhandled Application Error:", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).send("Something went wrong. Please try again later.");
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 http://localhost:${PORT}`));
+if (require.main === module || !process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`🚀 http://localhost:${PORT}`));
+}
+
+module.exports = app;

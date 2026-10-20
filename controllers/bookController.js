@@ -1,15 +1,19 @@
 // controllers/bookController.js
 const Book = require("../models/Book");
 const User = require("../models/User");
-// We use the cookie module to parse raw cookie headers in order to
-// determine whether the current request is from an authenticated admin.
 const cookie = require("cookie");
+const mongoose = require("mongoose");
 const {
   Types: { ObjectId },
-} = require("mongoose");
+} = mongoose;
 
-// Import our ID generator to generate new book IDs atomically.
-const { generateBookID } = require("../utils/idGen");
+// Import sequential ID utilities
+const {
+  suggestNextBookID,
+  generateBookID,
+  isBookIDAvailable,
+  syncBookCounter,
+} = require("../utils/idGen");
 
 /** Helper: normalize strings */
 const norm = (v) => (v === null || v === undefined ? "" : String(v)).trim();
@@ -30,35 +34,18 @@ function num(...vals) {
   return undefined;
 }
 
-/** Extract numeric tail from an AIPSLIB-style id (e.g., AIPSLIB000123 -> 123) */
-function extractTailNum(s) {
-  const x = norm(s);
-  if (!x.startsWith("AIPSLIB")) return undefined;
-  const n = x.slice("AIPSLIB".length);
-  const numVal = Number(n);
-  return Number.isFinite(numVal) ? numVal : undefined;
-}
-
-/**
- * Generate the next BookID using the atomic counter.  This replaces the
- * previous implementation that scanned all books to find the highest
- * numeric suffix.  By delegating to the Counter model via generateBookID,
- * concurrent requests will not collide and each call will produce a
- * unique identifier.
- */
-async function generateNextBookID() {
-  return generateBookID("AIPSLIB", 6);
-}
-
 /** Helper: decide where to redirect after action */
 function redirectTarget(req) {
   const ref = String(req.headers.referer || "");
-  return ref.includes("/books") ? "/books" : "/";
+  if (ref.includes("/admin/dashboard")) return "/admin/dashboard";
+  if (ref.includes("/books")) return "/books";
+  return "/books";
 }
 
 /** Helper: find by Mongo _id OR by bookID/BookID (AIPSLIB code) or by numeric tail */
 async function findBookByParam(idOrCode) {
   const raw = norm(idOrCode);
+  if (!raw) return null;
 
   // 1) Mongo ObjectId
   if (ObjectId.isValid(raw)) {
@@ -70,25 +57,24 @@ async function findBookByParam(idOrCode) {
   const exact = await Book.findOne({ $or: [{ bookID: raw }, { BookID: raw }] });
   if (exact) return exact;
 
-  // 3) If the param is all digits (e.g., "2"), try padded and regex variants
+  // 3) If the param is all digits (e.g., "1285"), try padded and regex variants
   if (/^\d+$/.test(raw)) {
-    const padded = `AIPSLIB${String(Number(raw)).padStart(6, "0")}`;
+    const rawNum = Number(raw);
+    const padded = rawNum < 1000 ? `AIPSLIB${String(rawNum).padStart(4, "0")}` : `AIPSLIB${rawNum}`;
 
-    // Try exact padded first
     const byPadded = await Book.findOne({
       $or: [{ bookID: padded }, { BookID: padded }],
     });
     if (byPadded) return byPadded;
 
-    // Try regex that matches any AIPSLIB with zero-padded or non-padded tail equal to these digits
-    const tailRegex = new RegExp(`^AIPSLIB0*${Number(raw)}$`, "i");
+    const tailRegex = new RegExp(`^AIPSLIB0*${rawNum}$`, "i");
     const byRegex = await Book.findOne({
       $or: [{ bookID: tailRegex }, { BookID: tailRegex }],
     });
     if (byRegex) return byRegex;
   }
 
-  // 4) As a last resort, try case-insensitive match on bookID fields
+  // 4) Case-insensitive exact match
   const ci = await Book.findOne({
     $or: [
       { bookID: { $regex: `^${raw}$`, $options: "i" } },
@@ -98,12 +84,13 @@ async function findBookByParam(idOrCode) {
   return ci || null;
 }
 
-//
-
-/** GET /books — list with add form */exports.listBooks = async (req, res, next) => {
+/**
+ * GET /books — List all books with pagination, search, and admin controls
+ */
+exports.listBooks = async (req, res, next) => {
   try {
-    const { title = "", author = "", page = 1 } = req.query; // Default page = 1
-    const perPage = 10; // Books per page
+    const { title = "", author = "", page = 1 } = req.query;
+    const perPage = 10;
     const conditions = [];
 
     // Title filter
@@ -120,176 +107,403 @@ async function findBookByParam(idOrCode) {
       conditions.push({ $or: [{ author: regex }, { Author: regex }] });
     }
 
-    // Build the final MongoDB filter
     const filter = conditions.length > 0 ? { $and: conditions } : {};
 
-    // Calculate the total number of books
+    // Calculate total number of books from actual database records
     const totalBooks = await Book.countDocuments(filter);
-    const totalPages = Math.max(1, Math.ceil(totalBooks / perPage)); // Avoid zero pages
+    const totalPages = Math.max(1, Math.ceil(totalBooks / perPage));
 
-    // Ensure currentPage is within valid bounds
     const requestedPage = parseInt(page, 10) || 1;
     const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
 
-    // When no results, skip querying and show a friendly message
     const hasResults = totalBooks > 0;
     const books = hasResults
       ? await Book.find(filter)
           .sort({ createdAt: 1, _id: 1 })
-          .skip((currentPage - 1) * perPage) // Skip books from previous pages
-          .limit(perPage) // Limit to perPage number of books
+          .skip((currentPage - 1) * perPage)
+          .limit(perPage)
           .lean()
       : [];
-    
-    // Not-found message that echoes the user's search query (title/author)
-    // Format: 'Sorry, no book or author was found with that name [search term].'
+
     const titleSearch = req.query.title ? String(req.query.title).trim() : "";
     const authorSearch = req.query.author ? String(req.query.author).trim() : "";
-    // Use title if available, otherwise use author, otherwise empty
     const searchTerm = titleSearch || authorSearch;
 
-    const notFoundMessage = !hasResults && searchTerm
-      ? `Sorry, no book or author was found with that name ${searchTerm}.`
-      : !hasResults
-      ? "Sorry, no book or author was found with that name."
-      : "";
+    const notFoundMessage =
+      !hasResults && searchTerm
+        ? `Sorry, no book or author was found with that name "${searchTerm}".`
+        : !hasResults
+        ? "Sorry, no book or author was found."
+        : "";
 
-    // Determine admin status by inspecting the isAdmin cookie
+    // Determine admin status from cookie
     const cookies = cookie.parse(req.headers.cookie || "");
     const isAdmin = cookies.isAdmin === "1";
 
-    // Render the page with books and pagination data
     res.render("showBooks", {
       books,
       query: req.query,
       isAdmin,
       currentPage,
       totalPages,
-      totalBooks, // Pass totalBooks to display
-      notFoundMessage, // Pass the notFoundMessage to the view
+      totalBooks,
+      notFoundMessage,
     });
   } catch (err) {
     next(err);
   }
 };
 
-
-/** POST /books/add */
-exports.addBook = async (req, res, next) => {
+/**
+ * GET /books/add — Render dedicated Add Book form with auto-prefilled sequential Book ID
+ */
+exports.renderAddBook = async (req, res, next) => {
   try {
-    // Map inputs (support both lowercase and legacy names)
-    let bookID = norm(req.body.bookID || req.body.BookID);
-    if (!bookID) bookID = await generateNextBookID();
+    const nextBookID = await suggestNextBookID();
 
-    let totalCopies = toInt(req.body.totalCopies || req.body.TotalCopies);
-    let availableCopies = toInt(
-      req.body.availableCopies || req.body.AvailableCopies
-    );
-
-    // If available not provided, default to total
-    if (availableCopies === undefined && Number.isFinite(totalCopies)) {
-      availableCopies = totalCopies;
-    }
-
-    const doc = {
-      bookID,
-      title: norm(req.body.title || req.body.Title),
-      author: norm(req.body.author || req.body.Author),
-      category: norm(req.body.category || req.body.Category),
-      year: toInt(req.body.year || req.body.Year),
-      totalCopies,
-      availableCopies,
-      shelfNo: norm(req.body.shelfNo || req.body.ShelfNo),
-      shelf: norm(req.body.shelf || req.body.Shelf),
-    };
-
-    await Book.create(doc);
-    res.redirect("/books");
+    res.render("addBook", {
+      nextBookID,
+      formData: {},
+      error: req.query.err || null,
+      success: req.query.msg || null,
+      query: req.query,
+    });
   } catch (err) {
-    next(err);
+    console.error("renderAddBook error:", err);
+    res.render("addBook", {
+      nextBookID: "AIPSLIB",
+      formData: {},
+      error: "Could not auto-generate Book ID. Please enter manually.",
+      success: null,
+      query: req.query,
+    });
   }
 };
-/** POST /books/update/:id  (accepts _id OR AIPSLIB code) */
-/** POST /books/update/:id  (accepts _id OR AIPSLIB code) */
+
+/**
+ * POST /books/add — Create a new book with server-side validation and duplicate prevention
+ */
+exports.addBook = async (req, res, next) => {
+  let submittedBookID = norm(req.body.bookID || req.body.BookID);
+  const title = norm(req.body.title || req.body.Title);
+  const author = norm(req.body.author || req.body.Author);
+  const category = norm(req.body.category || req.body.Category);
+  const year = toInt(req.body.year || req.body.Year);
+  const totalCopies = toInt(req.body.totalCopies || req.body.TotalCopies) ?? 1;
+  let availableCopies = toInt(req.body.availableCopies || req.body.AvailableCopies);
+  const shelfNo = norm(req.body.shelfNo || req.body.ShelfNo);
+  const shelf = norm(req.body.shelf || req.body.Shelf);
+
+  // If available copies not explicitly specified, default to total copies
+  if (availableCopies === undefined && Number.isFinite(totalCopies)) {
+    availableCopies = totalCopies;
+  }
+
+  // 1. Validate required title
+  if (!title) {
+    const nextBookID = await suggestNextBookID().catch(() => "AIPSLIB");
+    return res.status(400).render("addBook", {
+      nextBookID,
+      formData: req.body,
+      error: "Book title is required.",
+      success: null,
+      query: req.query,
+    });
+  }
+
+  // 2. Validate copy counts
+  if (totalCopies < 0) {
+    const nextBookID = await suggestNextBookID().catch(() => "AIPSLIB");
+    return res.status(400).render("addBook", {
+      nextBookID,
+      formData: req.body,
+      error: "Total copies cannot be negative.",
+      success: null,
+      query: req.query,
+    });
+  }
+
+  if (availableCopies < 0 || availableCopies > totalCopies) {
+    const nextBookID = await suggestNextBookID().catch(() => "AIPSLIB");
+    return res.status(400).render("addBook", {
+      nextBookID,
+      formData: req.body,
+      error: `Available copies must be between 0 and total copies (${totalCopies}).`,
+      success: null,
+      query: req.query,
+    });
+  }
+
+  try {
+    let finalBookID = submittedBookID;
+
+    // 3. Handle Book ID generation & duplicate checking
+    if (finalBookID) {
+      // Validate uniqueness if manually provided or prefilled
+      const isAvailable = await isBookIDAvailable(finalBookID);
+      if (!isAvailable) {
+        const nextSuggested = await suggestNextBookID().catch(() => "AIPSLIB");
+        return res.status(400).render("addBook", {
+          nextBookID: nextSuggested,
+          formData: req.body,
+          error: `Book ID "${finalBookID}" is already in use by another book. Please choose a different ID or use the suggested ID.`,
+          success: null,
+          query: req.query,
+        });
+      }
+    } else {
+      // Atomically allocate the next sequential ID
+      finalBookID = await generateBookID();
+    }
+
+    // 4. Save new book document (populate both PascalCase and camelCase for schema/query compatibility)
+    const doc = {
+      BookID: finalBookID,
+      bookID: finalBookID,
+      Title: title,
+      title: title,
+      Author: author,
+      author: author,
+      Category: category,
+      category: category,
+      Year: year,
+      year: year,
+      TotalCopies: totalCopies,
+      totalCopies: totalCopies,
+      AvailableCopies: availableCopies,
+      availableCopies: availableCopies,
+      ShelfNo: shelfNo,
+      shelfNo: shelfNo,
+      Shelf: shelf,
+      shelf: shelf,
+      borrowers: [],
+    };
+
+    const created = await Book.create(doc);
+
+    // Force-write the raw `bookID` field using the native driver.
+    // Mongoose treats `bookID` as an alias for `BookID` and may not persist
+    // the camelCase field as its own key in MongoDB. Raw writes ensure both
+    // BookID and bookID are always present so queries using either key work.
+    await mongoose.connection.collection("books").updateOne(
+      { _id: created._id },
+      { $set: { bookID: finalBookID } }
+    );
+
+    // Keep atomic counter in sync with inserted book ID
+    syncBookCounter().catch((err) => {
+      console.warn("Could not sync counter after book addition:", err.message);
+    });
+
+    return res.redirect(
+      "/books?msg=" + encodeURIComponent(`Book "${title}" (${finalBookID}) added successfully.`)
+    );
+  } catch (err) {
+    console.error("addBook error:", err);
+
+    const nextBookID = await suggestNextBookID().catch(() => "AIPSLIB");
+
+    // Duplicate key error in MongoDB (E11000)
+    if (err.code === 11000) {
+      return res.status(400).render("addBook", {
+        nextBookID,
+        formData: req.body,
+        error: `Duplicate Book ID "${submittedBookID || 'unknown'}". Another record already uses this ID.`,
+        success: null,
+        query: req.query,
+      });
+    }
+
+    return res.status(500).render("addBook", {
+      nextBookID,
+      formData: req.body,
+      error: `Failed to add book: ${err.message}`,
+      success: null,
+      query: req.query,
+    });
+  }
+};
+
+/**
+ * POST /books/update/:id — Update book fields including human-readable Book ID
+ * Preserves MongoDB internal _id, rejects duplicates, and preserves other relationships.
+ */
 exports.updateBook = async (req, res, next) => {
   try {
     const book = await findBookByParam(req.params.id);
     if (!book) {
       return res.redirect(
-        redirectTarget(req) + "?msg=" + encodeURIComponent("Book not found.")
+        redirectTarget(req) + "?err=" + encodeURIComponent("Book not found.")
       );
     }
 
-    // Build update payload from form (lowercase or legacy)
-    const update = {
-      title: norm(req.body.title || req.body.Title),
-      author: norm(req.body.author || req.body.Author),
-      category: norm(req.body.category || req.body.Category),
-      year: toInt(req.body.year || req.body.Year),
-      totalCopies: toInt(req.body.totalCopies || req.body.TotalCopies),
-      availableCopies: toInt(
-        req.body.availableCopies || req.body.AvailableCopies
-      ),
-      shelfNo: norm(req.body.shelfNo || req.body.ShelfNo),
-      shelf: norm(req.body.shelf || req.body.Shelf),
-    };
+    const currentBookID = (book.BookID || book.bookID || "").trim();
+    let newBookID = norm(
+      req.body.bookID || req.body.BookID || req.body.updateBookId
+    );
 
-    // Remove empty/undefined
-    for (const k of Object.keys(update)) {
-      if (update[k] === undefined || update[k] === "") delete update[k];
+    // Auto-normalize AIPSLIB prefix to uppercase (e.g. aipslib1286 -> AIPSLIB1286)
+    if (/^aipslib/i.test(newBookID)) {
+      newBookID = "AIPSLIB" + newBookID.slice(7);
     }
 
-    // Clamp available to total if needed
-    const newTotal =
-      update.totalCopies ?? num(book.totalCopies, book.TotalCopies);
-    let newAvail =
-      update.availableCopies ?? num(book.availableCopies, book.AvailableCopies);
-
-    if (newTotal !== undefined && newAvail === undefined) {
-      newAvail = Math.min(
-        num(book.availableCopies, book.AvailableCopies, 0) ?? 0,
-        newTotal
-      );
+    // If Book ID was changed, check for duplicates against other books
+    if (newBookID && newBookID !== currentBookID) {
+      const isAvailable = await isBookIDAvailable(newBookID, book._id);
+      if (!isAvailable) {
+        return res.redirect(
+          redirectTarget(req) +
+            "?err=" +
+            encodeURIComponent(`Cannot update Book ID: "${newBookID}" is already used by another book.`)
+        );
+      }
+      book.BookID = newBookID;
+      book.bookID = newBookID;
+      book.set("BookID", newBookID);
+      book.set("bookID", newBookID);
+      book.markModified("BookID");
     }
-    if (newTotal !== undefined && newAvail !== undefined) {
-      newAvail = Math.max(0, Math.min(newAvail, newTotal));
+
+    // Update text fields
+    const title = norm(req.body.title || req.body.Title);
+    const author = norm(req.body.author || req.body.Author);
+    const category = norm(req.body.category || req.body.Category);
+    const year = toInt(req.body.year || req.body.Year);
+    const shelfNo = norm(req.body.shelfNo || req.body.ShelfNo);
+    const shelf = norm(req.body.shelf || req.body.Shelf);
+
+    if (title) {
+      book.Title = title;
+      book.title = title;
     }
-    if (newTotal !== undefined) update.totalCopies = newTotal;
-    if (newAvail !== undefined) update.availableCopies = newAvail;
+    if (author !== undefined) {
+      book.Author = author;
+      book.author = author;
+    }
+    if (category !== undefined) {
+      book.Category = category;
+      book.category = category;
+    }
+    if (year !== undefined) {
+      book.Year = year;
+      book.year = year;
+    }
+    if (shelfNo !== undefined) {
+      book.ShelfNo = shelfNo;
+      book.shelfNo = shelfNo;
+    }
+    if (shelf !== undefined) {
+      book.Shelf = shelf;
+      book.shelf = shelf;
+    }
 
-    // ✅ Use document.set so aliases map correctly to stored PascalCase fields
-    book.set(update);
+    // Update copy counts safely
+    const newTotal = toInt(req.body.totalCopies || req.body.TotalCopies);
+    const newAvail = toInt(req.body.availableCopies || req.body.AvailableCopies);
 
-    // Keep legacy mirrors in sync (so older code paths reading PascalCase still work)
-    if (update.totalCopies !== undefined) book.TotalCopies = update.totalCopies;
-    if (update.availableCopies !== undefined)
-      book.AvailableCopies = update.availableCopies;
+    if (newTotal !== undefined && newTotal >= 0) {
+      book.TotalCopies = newTotal;
+      book.totalCopies = newTotal;
+    }
+
+    const currentTotal = num(book.TotalCopies, book.totalCopies, 0) ?? 0;
+    if (newAvail !== undefined) {
+      const clampedAvail = Math.max(0, Math.min(newAvail, currentTotal));
+      book.AvailableCopies = clampedAvail;
+      book.availableCopies = clampedAvail;
+    } else if (newTotal !== undefined) {
+      // Ensure available copies does not exceed new total
+      const currAvail = num(book.AvailableCopies, book.availableCopies, 0) ?? 0;
+      if (currAvail > currentTotal) {
+        book.AvailableCopies = currentTotal;
+        book.availableCopies = currentTotal;
+      }
+    }
 
     await book.save();
+
+    // Directly update the native MongoDB collection to persist BOTH BookID and
+    // bookID fields. We intentionally bypass Mongoose here because Mongoose
+    // treats `bookID` as an alias for `BookID` and silently ignores the
+    // camelCase key in updateOne, leaving the raw `bookID` field in MongoDB
+    // unchanged and causing the old ID to still display after save.
+    if (newBookID && newBookID !== currentBookID) {
+      await mongoose.connection.collection("books").updateOne(
+        { _id: book._id },
+        { $set: { BookID: newBookID, bookID: newBookID } }
+      );
+      syncBookCounter().catch((err) => {
+        console.warn("Could not sync counter after Book ID update:", err.message);
+      });
+    }
+
+    const finalSavedID = newBookID || currentBookID;
     return res.redirect(
       redirectTarget(req) +
         "?msg=" +
-        encodeURIComponent("Book updated successfully.")
+        encodeURIComponent(`Book "${book.Title || book.title}" (${finalSavedID}) updated successfully.`)
     );
   } catch (err) {
     console.error("updateBook error:", err);
     return res.redirect(
-      redirectTarget(req) + "?msg=" + encodeURIComponent("Update failed.")
+      redirectTarget(req) + "?err=" + encodeURIComponent(`Update failed: ${err.message}`)
     );
   }
 };
 
-/** POST /books/delete/:id */
+/**
+ * POST /books/delete/:id — Safe Book Deletion
+ * Checks for active book issues and borrowers before deleting.
+ * Protects issue/return history and relationships.
+ */
 exports.deleteBook = async (req, res, next) => {
   try {
-    await Book.findByIdAndDelete(req.params.id);
-    res.redirect("/books");
+    const book = await findBookByParam(req.params.id);
+    if (!book) {
+      return res.redirect(
+        redirectTarget(req) + "?err=" + encodeURIComponent("Book not found.")
+      );
+    }
+
+    const bookID = book.BookID || book.bookID || "Unknown ID";
+    const title = book.Title || book.title || "Untitled";
+
+    // Check for active issues before allowing deletion
+    const total = num(book.TotalCopies, book.totalCopies, 0) ?? 0;
+    const available = num(book.AvailableCopies, book.availableCopies, total) ?? total;
+    const issuedCount = Math.max(0, total - available);
+    const borrowerCount = Array.isArray(book.borrowers) ? book.borrowers.length : 0;
+    const activeCount = Math.max(issuedCount, borrowerCount);
+
+    if (activeCount > 0) {
+      return res.redirect(
+        redirectTarget(req) +
+          "?err=" +
+          encodeURIComponent(
+            `Cannot delete "${title}" (${bookID}): It currently has ${activeCount} active issued copy/copies. Please ensure all copies are returned before deleting.`
+          )
+      );
+    }
+
+    // Safely delete only the intended record by its MongoDB _id
+    await Book.findByIdAndDelete(book._id);
+
+    return res.redirect(
+      redirectTarget(req) +
+        "?msg=" +
+        encodeURIComponent(`Book "${title}" (${bookID}) was deleted successfully.`)
+    );
   } catch (err) {
-    next(err);
+    console.error("deleteBook error:", err);
+    return res.redirect(
+      redirectTarget(req) + "?err=" + encodeURIComponent(`Failed to delete book: ${err.message}`)
+    );
   }
 };
 
-/** GET /books/lookup/:id — JSON lookup for modals/autocomplete */
+/**
+ * GET /books/lookup/:id — JSON lookup for modals/autocomplete
+ */
 exports.lookupBook = async (req, res, next) => {
   try {
     const book = await findBookByParam(req.params.id);
@@ -323,25 +537,18 @@ exports.lookupBook = async (req, res, next) => {
   }
 };
 
-/** POST /books/issue/:id */
+/**
+ * POST /books/issue/:id
+ */
 exports.issueBook = async (req, res, next) => {
   try {
     const book = await findBookByParam(req.params.id);
     if (!book) {
       return res.redirect(
-        redirectTarget(req) + "?msg=" + encodeURIComponent("Book not found.")
+        redirectTarget(req) + "?err=" + encodeURIComponent("Book not found.")
       );
     }
 
-    /*
-     * Always compute the total and available counts using both the
-     * PascalCase and camelCase fields. The helper `num()` coerces strings
-     * and numbers safely and returns the first numeric value it finds.  If
-     * `availableCopies` is undefined but a total is present, we assume all
-     * copies are available initially. This avoids situations where
-     * the alias is undefined and would previously cause issuing to silently
-     * fail.
-     */
     const total = num(book.totalCopies, book.TotalCopies, 0) ?? 0;
     let available = num(book.availableCopies, book.AvailableCopies);
     if (available === undefined && total > 0) available = total;
@@ -350,19 +557,11 @@ exports.issueBook = async (req, res, next) => {
     if (available <= 0) {
       return res.redirect(
         redirectTarget(req) +
-          "?msg=" +
+          "?err=" +
           encodeURIComponent("No copies available to issue.")
       );
     }
 
-    /*
-     * Optionally associate this issued copy with a member.  If a
-     * userId is provided in the POST body and corresponds to an
-     * existing user, we'll record that user in the book.borrowers
-     * array.  If no user is provided (e.g., issuing from the table
-     * view), the issue will still decrement the available count but
-     * will not record a borrower.
-     */
     const { userId } = req.body;
     let member = null;
     if (userId) {
@@ -373,25 +572,13 @@ exports.issueBook = async (req, res, next) => {
       }
     }
 
-    // Build the atomic update: decrement available copies and push borrower
     const updateDoc = {
       $inc: { availableCopies: -1, AvailableCopies: -1 },
     };
     if (member) {
       updateDoc.$push = { borrowers: member._id };
     }
-    /*
-     * Perform an atomic update to decrement the available count.  The
-     * `availableCopies` field defined in the schema is an alias for
-     * `AvailableCopies`.  As explained in the Mongoose documentation,
-     * aliases and other virtuals are not stored in MongoDB and cannot
-     * be used in queries【893694647605822†L276-L277】.  Querying on the alias
-     * silently fails because MongoDB never sees that field.  To
-     * correctly enforce that a copy is available we must query on
-     * the actual stored field.  We'll include both the camelCase and
-     * PascalCase names in an `$or` condition so the query matches
-     * whichever field is present.
-     */
+
     const updated = await Book.findOneAndUpdate(
       {
         _id: book._id,
@@ -400,42 +587,41 @@ exports.issueBook = async (req, res, next) => {
       updateDoc,
       { new: true }
     );
+
     if (!updated) {
-      // Another concurrent request may have consumed the last copy
       return res.redirect(
         redirectTarget(req) +
-          "?msg=" +
+          "?err=" +
           encodeURIComponent("No copies available to issue.")
       );
     }
+
     let msg = "Book issued successfully.";
     if (member) {
       msg = `Book issued successfully to ${member.fullName} (${member.memberID}).`;
     }
-    return res.redirect(
-      redirectTarget(req) + "?msg=" + encodeURIComponent(msg)
-    );
+    return res.redirect(redirectTarget(req) + "?msg=" + encodeURIComponent(msg));
   } catch (err) {
     next(err);
   }
 };
 
-/** POST /books/return/:id */
+/**
+ * POST /books/return/:id
+ */
 exports.returnBook = async (req, res, next) => {
   try {
     const book = await findBookByParam(req.params.id);
     if (!book) {
       return res.redirect(
-        redirectTarget(req) + "?msg=" + encodeURIComponent("Book not found.")
+        redirectTarget(req) + "?err=" + encodeURIComponent("Book not found.")
       );
     }
 
     const total = num(book.totalCopies, book.TotalCopies, 0) ?? 0;
     let available = num(book.availableCopies, book.AvailableCopies);
-    // If undefined, treat as 0 (all copies issued)
     if (available === undefined) available = 0;
 
-    // Determine which member is returning the book (optional)
     const { userId } = req.body;
     let member = null;
     if (userId) {
@@ -446,20 +632,18 @@ exports.returnBook = async (req, res, next) => {
       }
     }
 
-    // Prevent exceeding total copies
     if (total > 0 && available >= total) {
       return res.redirect(
         redirectTarget(req) +
-          "?msg=" +
+          "?err=" +
           encodeURIComponent("All copies already returned.")
       );
     }
 
-    const newAvailable =
-      total > 0 ? Math.min(available + 1, total) : available + 1;
+    const newAvailable = total > 0 ? Math.min(available + 1, total) : available + 1;
     book.availableCopies = newAvailable;
     book.AvailableCopies = newAvailable;
-    // Remove borrower record if possible
+
     if (book.borrowers && book.borrowers.length) {
       if (member) {
         const idx = book.borrowers.findIndex((id) => id.toString() === userId);
@@ -467,18 +651,17 @@ exports.returnBook = async (req, res, next) => {
           book.borrowers.splice(idx, 1);
         }
       } else {
-        // remove the first borrower if no user specified or found
         book.borrowers.shift();
       }
     }
+
     await book.save();
+
     let msg = "Book returned successfully.";
     if (member) {
       msg = `Book returned successfully by ${member.fullName} (${member.memberID}).`;
     }
-    return res.redirect(
-      redirectTarget(req) + "?msg=" + encodeURIComponent(msg)
-    );
+    return res.redirect(redirectTarget(req) + "?msg=" + encodeURIComponent(msg));
   } catch (err) {
     next(err);
   }

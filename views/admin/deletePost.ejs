@@ -189,6 +189,79 @@
       background: #6c757d;
       color: white;
     }
+
+    .fb-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .fb-modal-card {
+      background: white;
+      border-radius: 16px;
+      max-width: 420px;
+      width: 100%;
+      padding: 30px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .fb-modal-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+
+    .fb-modal-icon.is-success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .fb-modal-icon.is-error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .fb-modal-title {
+      margin-bottom: 8px;
+      color: #333;
+      font-size: 1.25rem;
+    }
+
+    .fb-modal-msg {
+      color: #666;
+      font-size: 0.95rem;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .fb-modal-btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      color: white;
+    }
+
+    .fb-modal-btn.is-success {
+      background: #28a745;
+    }
+
+    .fb-modal-btn.is-error {
+      background: #dc3545;
+    }
   </style>
 </head>
 <body>
@@ -196,6 +269,45 @@
     <a href="/admin/dashboard" class="back-btn">← Back to Dashboard</a>
     
     <h1>Delete Post</h1>
+
+    <% 
+      const fbMsg = (typeof success !== 'undefined' && success) || null;
+      const fbErr = (typeof error !== 'undefined' && error) || null;
+      const hasFb = Boolean(fbMsg || fbErr);
+    %>
+    <% if (hasFb) { %>
+    <div id="adminFeedbackModal" class="fb-modal-overlay">
+      <div class="fb-modal-card">
+        <div class="fb-modal-icon <%= fbMsg ? 'is-success' : 'is-error' %>">
+          <%= fbMsg ? '✓' : '⚠' %>
+        </div>
+        <h3 class="fb-modal-title"><%= fbMsg ? 'Action Successful' : 'Action Failed' %></h3>
+        <p class="fb-modal-msg"><%= fbMsg || fbErr %></p>
+        <button type="button" onclick="closeFeedbackModal()" class="fb-modal-btn <%= fbMsg ? 'is-success' : 'is-error' %>">
+          OK, Continue
+        </button>
+      </div>
+    </div>
+    <script>
+      function closeFeedbackModal() {
+        const m = document.getElementById('adminFeedbackModal');
+        if (m) m.style.display = 'none';
+        if (window.history.replaceState) {
+          const url = new URL(window.location);
+          url.searchParams.delete('success');
+          url.searchParams.delete('error');
+          window.history.replaceState({}, document.title, url.toString());
+        }
+      }
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeFeedbackModal();
+      });
+      window.addEventListener('click', (e) => {
+        const m = document.getElementById('adminFeedbackModal');
+        if (e.target === m) closeFeedbackModal();
+      });
+    </script>
+    <% } %>
 
     <% if (typeof success !== 'undefined' && success) { %>
       <div class="alert alert-success"><%= success %></div>

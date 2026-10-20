@@ -165,6 +165,47 @@
       <h1>Update Post</h1>
     </div>
 
+    <% 
+      const fbMsg = (typeof success !== 'undefined' && success) || null;
+      const fbErr = (typeof error !== 'undefined' && error) || null;
+      const hasFb = Boolean(fbMsg || fbErr);
+    %>
+    <% if (hasFb) { %>
+    <div class="modal fade" id="adminFeedbackModal" tabindex="-1" aria-labelledby="adminFeedbackLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+        <div class="modal-content shadow-lg border-0 rounded-4 overflow-hidden">
+          <div class="modal-header border-0 pb-0 justify-content-end">
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body text-center px-4 pb-4 pt-0">
+            <div class="mx-auto mb-3 d-flex align-items-center justify-content-center rounded-circle <%= fbMsg ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger' %>" style="width: 64px; height: 64px;">
+              <% if (fbMsg) { %>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              <% } else { %>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              <% } %>
+            </div>
+            <h5 class="modal-title fw-bold text-dark mb-2" id="adminFeedbackLabel">
+              <%= fbMsg ? 'Operation Successful' : 'Action Failed' %>
+            </h5>
+            <p class="text-secondary mb-4 leading-relaxed">
+              <%= fbMsg || fbErr %>
+            </p>
+            <button type="button" class="btn <%= fbMsg ? 'btn-success' : 'btn-danger' %> rounded-pill px-4 py-2 w-100 fw-semibold shadow-sm" data-bs-dismiss="modal">
+              OK, Continue
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <% } %>
+
     <% if (typeof success !== 'undefined' && success) { %>
       <div class="alert alert-success alert-dismissible fade show" role="alert">
         <%= success %>
@@ -224,5 +265,24 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <% if (hasFb) { %>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const fbEl = document.getElementById("adminFeedbackModal");
+      if (fbEl && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        const fbModal = new bootstrap.Modal(fbEl);
+        fbModal.show();
+        fbEl.addEventListener("hidden.bs.modal", function () {
+          if (window.history.replaceState) {
+            const url = new URL(window.location);
+            url.searchParams.delete("success");
+            url.searchParams.delete("error");
+            window.history.replaceState({}, document.title, url.toString());
+          }
+        });
+      }
+    });
+  </script>
+  <% } %>
 </body>
 </html>
