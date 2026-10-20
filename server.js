@@ -23,6 +23,23 @@ const app = express();
 // the connection as HTTP even if it arrived via HTTPS.
 app.set("trust proxy", 1);
 
+// Normalize URL in case platform rewrites to /server.js
+app.use((req, res, next) => {
+  if (req.url.startsWith("/server.js")) {
+    const orig =
+      req.headers["x-matched-path"] ||
+      req.headers["x-forwarded-url"] ||
+      req.headers["x-original-url"] ||
+      req.headers["x-rewrite-url"];
+    if (orig && orig !== "/server.js") {
+      req.url = orig;
+    } else {
+      req.url = "/";
+    }
+  }
+  next();
+});
+
 // Middleware
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -54,7 +71,9 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error("DB connection error in request middleware:", err.message);
-    return res.status(503).send("Service temporarily unavailable: Database connecting. Please refresh shortly.");
+    return res.status(503).send(
+      `Service temporarily unavailable: Database connection failed (${err.message}). Please check database credentials, environment variables, and network whitelist.`
+    );
   }
 });
 
