@@ -23,23 +23,6 @@ const app = express();
 // the connection as HTTP even if it arrived via HTTPS.
 app.set("trust proxy", 1);
 
-// Normalize URL in case platform rewrites to /server.js
-app.use((req, res, next) => {
-  if (req.url.startsWith("/server.js")) {
-    const orig =
-      req.headers["x-matched-path"] ||
-      req.headers["x-forwarded-url"] ||
-      req.headers["x-original-url"] ||
-      req.headers["x-rewrite-url"];
-    if (orig && orig !== "/server.js") {
-      req.url = orig;
-    } else {
-      req.url = "/";
-    }
-  }
-  next();
-});
-
 // Middleware
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
